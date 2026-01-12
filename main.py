@@ -8,123 +8,167 @@ from pathlib import Path
 
 # --- CONFIGURACIÓN ---
 APP_NAME = "VibeEQ Manager"
-VERSION = "1.0.0"
-# Detecta dónde está instalada la app para poder actualizarse
-REPO_DIR = os.path.dirname(os.path.abspath(__file__)) 
+VERSION = "3.0.0"
+# EasyEffects busca aquí o en .local/share. Usamos .config para compatibilidad.
 EE_PRESETS_DIR = os.path.expanduser("~/.config/easyeffects/output")
 
 class VibeEQApp:
     def __init__(self, root):
         self.root = root
-        self.root.title(f"{APP_NAME} v{VERSION}")
-        self.root.geometry("400x600")
-        self.root.configure(bg="#1e1e1e")
-
-        # Estilos visuales
-        style = ttk.Style()
-        style.theme_use('clam')
-        style.configure("TButton", background="#333", foreground="white", borderwidth=0)
-        style.map("TButton", background=[('active', '#1DB954')]) 
+        self.root.title(f"{APP_NAME}")
+        self.root.geometry("500x650")
+        
+        # --- ESTILO "GLASS/DARK" ---
+        self.bg_color = "#1a1a1a"    # Negro suave
+        self.fg_color = "#ffffff"    # Texto blanco
+        self.accent = "#00e0a0"      # Verde Neon
+        self.sec_bg = "#2b2b2b"      # Gris oscuro para cajas
+        
+        self.root.configure(bg=self.bg_color)
+        # Transparencia ligera (el blur depende de tu compositor Linux)
+        self.root.attributes('-alpha', 0.96) 
 
         # Título
-        tk.Label(root, text="VIBE EQ", font=("Arial", 20, "bold"), bg="#1e1e1e", fg="#1DB954").pack(pady=20)
-
-        # --- BOTONES ---
-        btn_frame = tk.Frame(root, bg="#1e1e1e")
-        btn_frame.pack(fill="x", padx=20)
-
-        self.btn_import = tk.Button(btn_frame, text="📂 Importar JSON de Poweramp", 
-                                    command=self.importar_json, 
-                                    bg="#444", fg="white", font=("Arial", 11), relief="flat", padx=10, pady=8)
-        self.btn_import.pack(fill="x", pady=5)
-
-        self.btn_update = tk.Button(btn_frame, text="☁️ Buscar Actualizaciones", 
-                                    command=self.actualizar_app, 
-                                    bg="#222", fg="#aaa", font=("Arial", 9), relief="flat")
-        self.btn_update.pack(fill="x", pady=5)
-
-        # --- LISTA ---
-        tk.Label(root, text="Tus Presets:", bg="#1e1e1e", fg="white", font=("Arial", 12)).pack(pady=(20,5))
+        tk.Label(root, text="VIBE EQ", font=("Segoe UI", 24, "bold"), 
+                 bg=self.bg_color, fg=self.accent).pack(pady=(25, 5))
         
-        self.list_frame = tk.Frame(root, bg="#121212")
-        self.list_frame.pack(fill="both", expand=True, padx=20, pady=10)
+        tk.Label(root, text="Gestor de Presets", font=("Segoe UI", 10), 
+                 bg=self.bg_color, fg="#888").pack(pady=(0, 20))
+
+        # --- BOTÓN IMPORTAR ---
+        btn_import = tk.Button(root, text="＋ IMPORTAR PRESET (JSON)", 
+                               command=self.importar_json, 
+                               bg=self.accent, fg="black", font=("Segoe UI", 11, "bold"),
+                               relief="flat", activebackground="#00b070", cursor="hand2")
+        btn_import.pack(fill="x", padx=40, pady=10, ipady=5)
+
+        # --- LISTA DE PRESETS ---
+        tk.Label(root, text="Tus Ecualizaciones:", bg=self.bg_color, fg="#ccc", anchor="w").pack(fill="x", padx=40, pady=(20,5))
         
-        scrollbar = tk.Scrollbar(self.list_frame)
+        frame_list = tk.Frame(root, bg=self.sec_bg)
+        frame_list.pack(fill="both", expand=True, padx=40, pady=0)
+        
+        self.listbox = tk.Listbox(frame_list, bg=self.sec_bg, fg="white", 
+                                  font=("Consolas", 11), bd=0, highlightthickness=0,
+                                  selectbackground=self.accent, selectforeground="black")
+        self.listbox.pack(side="left", fill="both", expand=True, padx=10, pady=10)
+        
+        scrollbar = tk.Scrollbar(frame_list, command=self.listbox.yview)
         scrollbar.pack(side="right", fill="y")
+        self.listbox.config(yscrollcommand=scrollbar.set)
         
-        self.preset_listbox = tk.Listbox(self.list_frame, bg="#252525", fg="white", 
-                                         font=("Arial", 11), bd=0, 
-                                         yscrollcommand=scrollbar.set, selectbackground="#1DB954")
-        self.preset_listbox.pack(fill="both", expand=True)
-        scrollbar.config(command=self.preset_listbox.yview)
-        
-        self.preset_listbox.bind('<Double-1>', self.activar_preset)
+        self.listbox.bind('<Double-1>', self.activar_preset) # Doble click activa
+
+        # --- BOTÓN ACTIVAR ---
+        btn_apply = tk.Button(root, text="▶ ACTIVAR SELECCIONADO", 
+                              command=self.activar_preset, 
+                              bg=self.sec_bg, fg=self.accent, font=("Segoe UI", 10, "bold"),
+                              relief="flat", bd=1, activebackground="#333", cursor="hand2")
+        btn_apply.pack(fill="x", padx=40, pady=20, ipady=5)
+
         self.cargar_lista()
 
     def cargar_lista(self):
-        self.preset_listbox.delete(0, tk.END)
-        try:
-            Path(EE_PRESETS_DIR).mkdir(parents=True, exist_ok=True)
-            archivos = [f.stem for f in Path(EE_PRESETS_DIR).glob("*.json")]
-            for arch in sorted(archivos):
-                self.preset_listbox.insert(tk.END, arch)
-        except Exception:
-            pass
+        self.listbox.delete(0, tk.END)
+        # Buscamos en ambas rutas por si acaso (config y local/share)
+        rutas = [
+            Path(EE_PRESETS_DIR),
+            Path(os.path.expanduser("~/.local/share/easyeffects/output"))
+        ]
+        
+        encontrados = set()
+        for ruta in rutas:
+            if ruta.exists():
+                for f in ruta.glob("*.json"):
+                    encontrados.add(f.stem)
+        
+        for arch in sorted(encontrados):
+            self.listbox.insert(tk.END, arch)
 
     def activar_preset(self, event=None):
-        seleccion = self.preset_listbox.curselection()
-        if not seleccion: return
-        nombre = self.preset_listbox.get(seleccion[0])
-        subprocess.run(["easyeffects", "-l", nombre])
-        messagebox.showinfo("Vibe", f"Activado: {nombre}")
+        seleccion = self.listbox.curselection()
+        if not seleccion: 
+            messagebox.showwarning("!", "Selecciona un preset de la lista.")
+            return
+            
+        nombre = self.listbox.get(seleccion[0])
+        try:
+            # Comando para cargar en EasyEffects
+            subprocess.run(["easyeffects", "-l", nombre], check=True)
+            messagebox.showinfo("VibeEQ", f"Ecualización activada:\n{nombre}")
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo cargar en EasyEffects:\n{e}")
+
+    # --- LÓGICA DEL CAZADOR (Tu código funcional) ---
+    def buscar_bandas_recursivo(self, data):
+        if isinstance(data, list):
+            if len(data) > 0 and isinstance(data[0], dict):
+                keys = data[0].keys()
+                if any(k in keys for k in ["frequency", "gain", "fc", "q", "preamp"]):
+                    return data
+            for item in data:
+                res = self.buscar_bandas_recursivo(item)
+                if res: return res
+        elif isinstance(data, dict):
+            for k in ["preset", "bands", "eq1", "entries", "equalizer"]:
+                if k in data:
+                    res = self.buscar_bandas_recursivo(data[k])
+                    if res: return res
+            for v in data.values():
+                res = self.buscar_bandas_recursivo(v)
+                if res: return res
+        return None
 
     def importar_json(self):
-        archivo = filedialog.askopenfilename(filetypes=[("JSON", "*.json"), ("Todos", "*.*")])
+        archivo = filedialog.askopenfilename(filetypes=[("JSON", "*.json")])
         if not archivo: return
 
         try:
-            with open(archivo, 'r') as f: data = json.load(f)
+            with open(archivo, 'r', encoding='utf-8') as f:
+                raw_data = json.load(f)
+            
             nombre = Path(archivo).stem.replace(" ", "_")
             
-            # --- CONVERSIÓN ---
+            # Usamos la lógica que ya funcionó
+            bandas = self.buscar_bandas_recursivo(raw_data)
+
+            if not bandas:
+                raise ValueError("No se detectaron bandas de EQ en este archivo.")
+
+            # Formato EasyEffects
             ee_data = {
                 "output": {
-                    "blocklist": [], "plugins_order": ["equalizer"],
-                    "equalizer": { "left": {}, "right": {}, "num-bands": 0 }
+                    "blocklist": [], 
+                    "plugins_order": ["equalizer"],
+                    "equalizer": { "left": {}, "right": {}, "num-bands": len(bandas) }
                 }
             }
-            # Busca bandas en 'preset->bands' o directamente en 'bands'
-            bandas = data.get("preset", {}).get("bands", []) or data.get("bands", [])
-            
-            if not bandas: raise ValueError("No encontré bandas de EQ.")
 
             for i, b in enumerate(bandas):
                 k = f"band{i}"
-                info = { "type": "Bell", "mode": "RLC (BT)", "mute": False,
-                    "frequency": b.get("frequency", 100),
-                    "gain": b.get("gain", 0.0), "q": b.get("q", 1.0) }
+                freq = b.get("frequency", b.get("fc", 100))
+                gain = b.get("gain", b.get("g", 0.0))
+                q_val = b.get("q", 1.0)
+
+                info = { 
+                    "type": "Bell", "mode": "RLC (BT)", "mute": False,
+                    "frequency": float(freq), "gain": float(gain), "q": float(q_val) 
+                }
                 ee_data["output"]["equalizer"]["left"][k] = info
                 ee_data["output"]["equalizer"]["right"][k] = info
             
-            ee_data["output"]["equalizer"]["num-bands"] = len(bandas)
-            
+            # Guardar
+            Path(EE_PRESETS_DIR).mkdir(parents=True, exist_ok=True)
             with open(os.path.join(EE_PRESETS_DIR, f"{nombre}.json"), 'w') as f:
                 json.dump(ee_data, f, indent=4)
             
-            messagebox.showinfo("Listo", "Preset importado.")
+            # Recargar lista y activar
             self.cargar_lista()
+            subprocess.run(["easyeffects", "-l", nombre])
+            messagebox.showinfo("ÉXITO", f"Preset '{nombre}' importado y activado.")
+
         except Exception as e:
             messagebox.showerror("Error", str(e))
-
-    def actualizar_app(self):
-        try:
-            res = subprocess.run(["git", "pull"], cwd=REPO_DIR, capture_output=True, text=True)
-            if "Already up to date" in res.stdout:
-                messagebox.showinfo("Update", "Ya tienes la última versión.")
-            else:
-                messagebox.showinfo("Update", "Actualización completada. Reinicia la app.")
-        except Exception as e:
-            messagebox.showerror("Error", f"No se pudo conectar a GitHub: {e}")
 
 if __name__ == "__main__":
     root = tk.Tk()
