@@ -8,7 +8,7 @@ from pathlib import Path
 
 # --- CONFIGURACIÓN ---
 APP_NAME = "VibeEQ Manager"
-VERSION = "3.1.0" # Version Visual
+VERSION = "3.1.0"
 EE_PRESETS_DIR = os.path.expanduser("~/.config/easyeffects/output")
 
 class VibeEQApp:
@@ -29,7 +29,7 @@ class VibeEQApp:
         tk.Label(root, text="VIBE EQ", font=("Segoe UI", 24, "bold"), 
                  bg=self.bg_color, fg=self.accent).pack(pady=(25, 5))
         
-        # INDICADOR DE ESTADO (LO NUEVO)
+        # INDICADOR DE ESTADO
         self.lbl_status = tk.Label(root, text="Estado: Esperando...", font=("Segoe UI", 11), 
                  bg=self.bg_color, fg="#888")
         self.lbl_status.pack(pady=(0, 20))
@@ -84,20 +84,16 @@ class VibeEQApp:
 
     def aplicar_y_mostrar(self, nombre):
         try:
-            # 1. Cargar el preset en el motor de audio
+            # 1. Cargar el preset
             subprocess.run(["easyeffects", "-l", nombre], check=True)
-            
-            # 2. Actualizar etiqueta visual en nuestra app
+            # 2. Actualizar texto
             self.lbl_status.config(text=f"ACTIVO: {nombre}", fg=self.accent)
-            
-            # 3. ABRIR LA VENTANA DE EASY EFFECTS (Para certeza visual)
-            # Usamos Popen para que no congele nuestra app
+            # 3. ABRIR VENTANA EASY EFFECTS
             subprocess.Popen(["easyeffects"]) 
-            
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo cargar:\n{e}")
 
-    # --- LÓGICA DE IMPORTACIÓN (HUNTER) ---
+    # --- LÓGICA HUNTER ---
     def buscar_bandas_recursivo(self, data):
         if isinstance(data, list):
             if len(data) > 0 and isinstance(data[0], dict):
@@ -152,9 +148,8 @@ class VibeEQApp:
                 json.dump(ee_data, f, indent=4)
             
             self.cargar_lista()
-            # AUTO-ACTIVAR al importar
             self.aplicar_y_mostrar(nombre) 
-            messagebox.showinfo("ÉXITO", f"Preset importado.\nVerifica las curvas en EasyEffects.")
+            messagebox.showinfo("ÉXITO", f"Preset importado y activado.")
 
         except Exception as e:
             messagebox.showerror("Error", str(e))
@@ -163,3 +158,4 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = VibeEQApp(root)
     root.mainloop()
+
